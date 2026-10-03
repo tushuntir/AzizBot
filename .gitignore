@@ -1,0 +1,14 @@
+# Secrets — never commit these
+.env
+cookies.txt
+cookies (*).txt
+*.cookies.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Data / runtime
+data/
+*.zip

@@ -6,7 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - botdata:/app/data
-      # - ./cookies.txt:/app/cookies.txt:ro   # uncomment if you use COOKIES_FILE
+      - ./cookies.txt:/app/cookies.txt:ro   # uncomment if you use COOKIES_FILE
     logging:
       driver: json-file
       options:

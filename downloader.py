@@ -4,7 +4,25 @@ from pathlib import Path
 
 import yt_dlp
 
-COOKIES_FILE = os.getenv("COOKIES_FILE") or None
+def _cookies_path() -> Path | None:
+    val = os.getenv("COOKIES_FILE")
+    if not val:
+        return None
+    p = Path(val)
+    return p if p.exists() else None
+
+
+def _player_clients() -> list[str]:
+    env = os.getenv("YT_PLAYER_CLIENT")
+    if env:
+        clients = [c.strip() for c in env.split(",") if c.strip()]
+        if clients:
+            return clients
+    # Don't pair cookies with tv: it authenticates differently and tends
+    # to invalidate the session. No cookies: tv first (least scrutinised).
+    if _cookies_path() is not None:
+        return ["web_safari", "web_embedded", "mweb"]
+    return ["tv", "web_safari"]
 MAX_BYTES = 50 * 1024 * 1024  # Telegram cloud Bot API upload limit
 
 
@@ -20,9 +38,20 @@ def _base_opts(outdir: str) -> dict:
         "noplaylist": True,
         "socket_timeout": 20,
         "retries": 3,
+        # ---- YouTube "Sign in to confirm you're not a bot" mitigations ----
+        # Try alternative player clients in order; web client without PO token
+        # is what triggers the challenge most often on datacenter IPs.
+        "extractor_args": {"youtube": {"player_client": _player_clients()}},
+        # Force IPv4: datacenter IPv6 ranges are blocked hardest by YouTube.
+        "source_address": "0.0.0.0",
+        # Be less bot-like: small sleeps between requests.
+        "sleep_interval_requests": 1,
+        "sleep_interval": 1,
+        "max_sleep_interval": 5,
     }
-    if COOKIES_FILE and Path(COOKIES_FILE).exists():
-        opts["cookiefile"] = COOKIES_FILE
+    cp = _cookies_path()
+    if cp is not None:
+        opts["cookiefile"] = str(cp)
     return opts
 
 
@@ -71,7 +100,18 @@ def download_audio(url: str):
 
 
 def search_music(query: str, limit: int = 10) -> list[dict]:
-    opts = {"quiet": True, "no_warnings": True, "extract_flat": True, "skip_download": True}
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "extract_flat": True,
+        "skip_download": True,
+        "socket_timeout": 20,
+        "extractor_args": {"youtube": {"player_client": _player_clients()}},
+        "source_address": "0.0.0.0",
+    }
+    cp = _cookies_path()
+    if cp is not None:
+        opts["cookiefile"] = str(cp)
     with yt_dlp.YoutubeDL(opts) as ydl:
         data = ydl.extract_info(f"ytsearch{limit}:{query}", download=False)
     results = []
