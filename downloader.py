@@ -1,15 +1,52 @@
+import base64
 import os
 import tempfile
 from pathlib import Path
 
 import yt_dlp
 
+
+def _ensure_cookies_from_env() -> None:
+    """PaaS hosts (Railway/Render/Fly/...) have no volume mounts, and
+    .dockerignore keeps cookies.txt out of the image — so the file never
+    arrives. Workaround: paste base64(cookies.txt) into a COOKIES_B64
+    env var and materialize it here at import time."""
+    if os.getenv("COOKIES_B64"):
+        dest = os.getenv("COOKIES_FILE") or "/app/cookies.txt"
+        try:
+            p = Path(dest)
+            if not p.exists() or p.stat().st_size == 0:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(base64.b64decode(os.environ["COOKIES_B64"]))
+        except Exception:
+            pass  # _cookies_path() returning None keeps old behavior
+
+
+_ensure_cookies_from_env()
+
+
+def diagnostics() -> dict:
+    cp = _cookies_path()
+    return {
+        "yt_dlp": yt_dlp.version.__version__,
+        "cookies_file": str(cp) if cp else None,
+        "player_clients": _player_clients(),
+    }
+
 def _cookies_path() -> Path | None:
     val = os.getenv("COOKIES_FILE")
-    if not val:
-        return None
-    p = Path(val)
-    return p if p.exists() else None
+    if val:
+        p = Path(val)
+        if p.exists():
+            return p
+    # Fall back to well-known filenames (browsers save re-downloads as
+    # "cookies (1).txt", and compose mounts ./cookies.txt by default).
+    for cand in ("cookies.txt", "cookies (1).txt",
+                 "/app/cookies.txt", "/app/cookies (1).txt"):
+        p = Path(cand)
+        if p.exists() and p.stat().st_size > 0:
+            return p
+    return None
 
 
 def _player_clients() -> list[str]:
@@ -71,6 +108,9 @@ def download_video(url: str):
     tmp = tempfile.mkdtemp(prefix="reel_")
     opts = _base_opts(tmp)
     opts["format"] = "best[ext=mp4][filesize<48M]/best[ext=mp4]/best"
+    # YouTube serves separate video/audio streams; merge them into one mp4.
+    # No-op for single-file sources like Instagram.
+    opts["merge_output_format"] = "mp4"
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=True)
     path = _pick_file(tmp)

@@ -27,6 +27,10 @@ PAGE_SIZE = 5
 jobs = asyncio.Semaphore(int(os.getenv("MAX_JOBS", "3")))
 
 IG_RE = re.compile(r"https?://(?:www\.)?instagram\.com/(?:reels?|p|tv)/[\w\-]+[^\s]*", re.I)
+YT_RE = re.compile(
+    r"https?://(?:www\.|m\.|music\.)?(?:youtube\.com/(?:watch[^\s]*|shorts/[\w\-]+|live/[\w\-]+)|youtu\.be/[\w\-]+)",
+    re.I,
+)
 
 router = Router()
 
@@ -79,7 +83,10 @@ def results_markup(sid: str, page: int) -> InlineKeyboardMarkup:
     chunk = results[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
     for r in chunk:
         label = f"{r['title'][:45]} · {fmt_dur(r['duration'])}".strip(" ·")
-        kb.row(InlineKeyboardButton(text=label, callback_data=f"m:{r['id']}"))
+        kb.row(
+            InlineKeyboardButton(text=f"🎵 {label}"[:64], callback_data=f"m:{r['id']}"),
+            InlineKeyboardButton(text="🎬", callback_data=f"v:{r['id']}"),
+        )
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"p:{sid}:{page - 1}"))
@@ -123,8 +130,17 @@ async def on_lang(cb: CallbackQuery):
 @router.message(F.text.regexp(IG_RE))
 async def on_instagram(m: Message, bot: Bot):
     url = IG_RE.search(m.text).group(0)
-    T = TEXTS[await lang_of(m.from_user)]
-    status = await m.answer(T["working"])
+    await send_video(m, url, TEXTS[await lang_of(m.from_user)], bot)
+
+
+@router.message(F.text.regexp(YT_RE))
+async def on_youtube(m: Message, bot: Bot):
+    url = YT_RE.search(m.text).group(0)
+    await send_video(m, url, TEXTS[await lang_of(m.from_user)], bot)
+
+
+async def send_video(msg: Message, url: str, T: dict, bot: Bot):
+    status = await msg.answer(T["working"])
     tmp = None
     try:
         async with jobs:
@@ -135,13 +151,13 @@ async def on_instagram(m: Message, bot: Bot):
         markup = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=T["audio_btn"], callback_data=f"a:{lid}")
         ]])
-        await m.answer_video(FSInputFile(path), caption=T["caption"].format(bot=me.username),
-                             reply_markup=markup, supports_streaming=True)
+        await msg.answer_video(FSInputFile(path), caption=T["caption"].format(bot=me.username),
+                               reply_markup=markup, supports_streaming=True)
     except dl.TooBig:
-        await m.answer(T["too_big"])
+        await msg.answer(T["too_big"])
     except Exception:
         logging.exception("video download failed")
-        await m.answer(T["failed"])
+        await msg.answer(T["failed"])
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -190,6 +206,13 @@ async def on_music(cb: CallbackQuery):
     T = TEXTS[await lang_of(cb.from_user)]
     await cb.answer(T["working"])
     await send_audio(cb.message, f"https://www.youtube.com/watch?v={cb.data[2:]}", T)
+
+
+@router.callback_query(F.data.startswith("v:"))
+async def on_music_video(cb: CallbackQuery, bot: Bot):
+    T = TEXTS[await lang_of(cb.from_user)]
+    await cb.answer(T["working"])
+    await send_video(cb.message, f"https://www.youtube.com/watch?v={cb.data[2:]}", T, bot)
 
 
 async def send_audio(msg: Message, url: str, T: dict):
@@ -276,6 +299,7 @@ async def on_round_video(m: Message, bot: Bot):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
+    logging.info("downloader diagnostics: %s", dl.diagnostics())
     bot = Bot(os.environ["BOT_TOKEN"])
     dp = Dispatcher()
     dp.include_router(router)

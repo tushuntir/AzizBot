@@ -4,10 +4,10 @@ TEXTS = {
     "en": {
         "choose_lang": "🌐 Choose your language:",
         "lang_set": "✅ Language set to English.",
-        "start": "👋 Send me an Instagram reel link and I'll download the video.\n"
-                 "Or just type a song name or artist and I'll find the music for you.\n"
-                 "Circle video: /round\n\n"
-                 "Change language: /lang",
+        "start": "👋 Send me an Instagram reel or YouTube link and I'll download the video.\n"
+                  "Or just type a song name or artist and I'll find the music for you.\n"
+                  "Circle video: /round\n\n"
+                  "Change language: /lang",
         "working": "⏳ Downloading…",
         "searching": "🔎 Searching…",
         "no_results": "😕 Nothing found. Try a different search.",
@@ -27,8 +27,8 @@ TEXTS = {
     "uz": {
         "choose_lang": "🌐 Tilni tanlang:",
         "lang_set": "✅ Til o'zbekchaga o'zgartirildi.",
-        "start": "👋 Instagram reel havolasini yuboring — videoni yuklab beraman.\n"
-                 "Yoki qo'shiq yoki ijrochi nomini yozing — musiqani topib beraman.\n"
+        "start": "👋 Instagram yoki YouTube havolasini yuboring — videoni yuklab beraman.\n"
+                  "Yoki qo'shiq yoki ijrochi nomini yozing — musiqani topib beraman.\n"
                  "Dumaloq video: /round\n\n"
                  "Tilni o'zgartirish: /lang",
         "working": "⏳ Yuklanmoqda…",
@@ -50,8 +50,8 @@ TEXTS = {
     "ru": {
         "choose_lang": "🌐 Выберите язык:",
         "lang_set": "✅ Язык изменён на русский.",
-        "start": "👋 Отправьте ссылку на Instagram Reels — я скачаю видео.\n"
-                 "Или просто напишите название песни или исполнителя — я найду музыку.\n"
+        "start": "👋 Отправьте ссылку на Instagram Reels или YouTube — я скачаю видео.\n"
+                  "Или просто напишите название песни или исполнителя — я найду музыку.\n"
                  "Кружок из видео: /round\n\n"
                  "Сменить язык: /lang",
         "working": "⏳ Загрузка…",
