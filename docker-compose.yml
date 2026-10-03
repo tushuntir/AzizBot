@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    container_name: reelbot
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - botdata:/app/data
+      # - ./cookies.txt:/app/cookies.txt:ro   # uncomment if you use COOKIES_FILE
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  botdata:
