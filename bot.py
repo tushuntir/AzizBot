@@ -299,7 +299,11 @@ async def on_round_video(m: Message, bot: Bot):
 
 async def main():
     logging.basicConfig(level=logging.INFO)
-    logging.info("downloader diagnostics: %s", dl.diagnostics())
+    diag = dl.diagnostics()
+    logging.info("downloader diagnostics: %s", diag)
+    if not diag.get("cookies_file"):
+        logging.warning("No cookies found (COOKIES_FILE/COOKIES_B64/cookies.txt) — "
+                        "YouTube downloads will hit 'Sign in to confirm you're not a bot'")
     bot = Bot(os.environ["BOT_TOKEN"])
     dp = Dispatcher()
     dp.include_router(router)
