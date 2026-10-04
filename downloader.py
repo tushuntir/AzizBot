@@ -1,9 +1,12 @@
 import base64
+import logging
 import os
 import tempfile
 from pathlib import Path
 
 import yt_dlp
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_cookies_from_env() -> None:
@@ -102,6 +105,9 @@ def _base_opts(outdir: str, proxy: str | None = None) -> dict:
         opts["cookiefile"] = str(cp)
     if proxy:
         opts["proxy"] = proxy
+        logger.info("Using proxy: %s", proxy)
+    else:
+        logger.info("No proxy — using direct connection")
     return opts
 
 

@@ -22,7 +22,36 @@ load_dotenv()
 import downloader as dl  # noqa: E402  (after load_dotenv so COOKIES_FILE is read)
 import db  # noqa: E402
 import admin as admin_panel  # noqa: E402
+import config as proxy_config  # noqa: E402
+from proxy_manager import ProxyManager, load_working_proxies  # noqa: E402
 from strings import LANG_NAMES, TEXTS  # noqa: E402
+
+proxy_manager = ProxyManager(load_working_proxies())
+
+
+async def _dl_with_proxy(fn, url):
+    """fn: dl.download_audio / dl.download_video — pass proxy= and retry."""
+    last_err = None
+    for attempt in range(1, proxy_config.MAX_DOWNLOAD_RETRIES + 1):
+        proxy = proxy_manager.get_proxy()
+        try:
+            tmp, path, info = await asyncio.to_thread(fn, url, proxy=proxy)
+            if proxy:
+                proxy_manager.record_success(proxy)
+            return tmp, path, info
+        except dl.TooBig:
+            raise
+        except Exception as e:
+            last_err = e
+            logging.warning(
+                "download attempt %d/%d failed (proxy=%s): %s",
+                attempt, proxy_config.MAX_DOWNLOAD_RETRIES, proxy or "direct", e,
+            )
+            if proxy:
+                proxy_manager.mark_failed(proxy)
+    raise RuntimeError(
+        f"All {proxy_config.MAX_DOWNLOAD_RETRIES} download attempts failed"
+    ) from last_err
 
 DEFAULT_LANG = os.getenv("DEFAULT_LANG", "en")
 if DEFAULT_LANG not in TEXTS:
@@ -205,7 +234,7 @@ async def send_video(msg: Message, url: str, T: dict, bot: Bot):
                                    reply_markup=markup, supports_streaming=True)
             return
         async with jobs:
-            tmp, path, info = await asyncio.to_thread(dl.download_video, url)
+            tmp, path, info = await _dl_with_proxy(dl.download_video, url)
         _cc = db.get_cache_channel()
         if _cc:
             sent = await bot.send_video(_cc, FSInputFile(path), supports_streaming=True)
@@ -363,7 +392,7 @@ async def send_audio(msg: Message, url: str, T: dict):
             )
             return
         async with jobs:
-            tmp, path, info = await asyncio.to_thread(dl.download_audio, url)
+            tmp, path, info = await _dl_with_proxy(dl.download_audio, url)
         title = (info.get("track") or info.get("title") or "")[:64]
         performer = (info.get("artist") or info.get("uploader") or "")[:64]
         duration = int(info.get("duration") or 0)
