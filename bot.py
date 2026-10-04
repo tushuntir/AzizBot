@@ -234,7 +234,10 @@ async def send_video(msg: Message, url: str, T: dict, bot: Bot):
                                    reply_markup=markup, supports_streaming=True)
             return
         async with jobs:
-            tmp, path, info = await _dl_with_proxy(dl.download_video, url)
+            if "instagram.com" in url:
+                tmp, path, info = await asyncio.to_thread(dl.download_video, url)
+            else:
+                tmp, path, info = await _dl_with_proxy(dl.download_video, url)
         _cc = db.get_cache_channel()
         if _cc:
             sent = await bot.send_video(_cc, FSInputFile(path), supports_streaming=True)
