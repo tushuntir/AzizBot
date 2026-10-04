@@ -78,7 +78,10 @@ def _base_opts(outdir: str) -> dict:
         # ---- YouTube "Sign in to confirm you're not a bot" mitigations ----
         # Try alternative player clients in order; web client without PO token
         # is what triggers the challenge most often on datacenter IPs.
-        "extractor_args": {"youtube": {"player_client": _player_clients()}},
+        "extractor_args": {
+            "youtube": {"player_client": _player_clients()},
+            "youtubepot-bgutilhttp": {"base_url": os.getenv("POT_BASE_URL", "http://127.0.0.1:4416").rstrip("/")},
+        },
         # Force IPv4: datacenter IPv6 ranges are blocked hardest by YouTube.
         "source_address": "0.0.0.0",
         # Be less bot-like: small sleeps between requests.
@@ -146,7 +149,10 @@ def search_music(query: str, limit: int = 10) -> list[dict]:
         "extract_flat": True,
         "skip_download": True,
         "socket_timeout": 20,
-        "extractor_args": {"youtube": {"player_client": _player_clients()}},
+        "extractor_args": {
+            "youtube": {"player_client": _player_clients()},
+            "youtubepot-bgutilhttp": {"base_url": os.getenv("POT_BASE_URL", "http://127.0.0.1:4416").rstrip("/")},
+        },
         "source_address": "0.0.0.0",
     }
     cp = _cookies_path()
