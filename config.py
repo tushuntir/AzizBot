@@ -4,7 +4,7 @@ SOCKS5_LIST_URL = "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master
 HTTP_LIST_URL = "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt"
 
 PROXY_LIMIT_PER_TYPE = int(os.getenv("PROXY_LIMIT_PER_TYPE", "500"))
-TEST_URL = os.getenv("PROXY_TEST_URL", "http://www.google.com")
+TEST_URL = os.getenv("PROXY_TEST_URL", "https://www.youtube.com")
 TEST_TIMEOUT = int(os.getenv("PROXY_TEST_TIMEOUT", "10"))
 TEST_BATCH_SIZE = int(os.getenv("PROXY_TEST_BATCH_SIZE", "100"))
 FETCH_RETRIES = int(os.getenv("PROXY_FETCH_RETRIES", "3"))
