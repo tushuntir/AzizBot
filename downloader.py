@@ -12,7 +12,10 @@ def _ensure_cookies_from_env() -> None:
     arrives. Workaround: paste base64(cookies.txt) into a COOKIES_B64
     env var and materialize it here at import time."""
     if os.getenv("COOKIES_B64"):
-        dest = os.getenv("COOKIES_FILE") or "/app/cookies.txt"
+        dest_env = os.getenv("COOKIES_FILE", "").strip()
+        if dest_env.lower() in ("none", "off", "disable", "disabled", "no"):
+            return
+        dest = dest_env or "/app/cookies.txt"
         try:
             p = Path(dest)
             if not p.exists() or p.stat().st_size == 0:
@@ -34,7 +37,9 @@ def diagnostics() -> dict:
     }
 
 def _cookies_path() -> Path | None:
-    val = os.getenv("COOKIES_FILE")
+    val = os.getenv("COOKIES_FILE", "").strip()
+    if val.lower() in ("none", "off", "disable", "disabled", "no"):
+        return None
     if val:
         p = Path(val)
         if p.exists():
