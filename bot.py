@@ -8,7 +8,10 @@ import tempfile
 from collections import OrderedDict
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (BotCommand, CallbackQuery, FSInputFile, InlineKeyboardButton,
                            InlineKeyboardMarkup, Message)
 from aiogram.utils.keyboard import InlineKeyboardBuilder
@@ -18,6 +21,7 @@ load_dotenv()
 
 import downloader as dl  # noqa: E402  (after load_dotenv so COOKIES_FILE is read)
 import db  # noqa: E402
+import admin as admin_panel  # noqa: E402
 from strings import LANG_NAMES, TEXTS  # noqa: E402
 
 DEFAULT_LANG = os.getenv("DEFAULT_LANG", "en")
@@ -61,6 +65,20 @@ async def lang_of(user) -> str:
     return code if code in TEXTS else DEFAULT_LANG
 
 
+async def check_sub(message: Message, bot: Bot) -> bool:
+    """Track user + enforce force-sub. Returns True if user may continue."""
+    await asyncio.to_thread(db.ensure_user, message.from_user.id)
+    if admin_panel.is_admin(message.from_user.id):
+        return True
+    missing = await admin_panel.missing_channels(bot, message.from_user.id)
+    if not missing:
+        return True
+    lang = await lang_of(message.from_user)
+    await message.answer(TEXTS[lang]["sub_required"],
+                         reply_markup=admin_panel.join_markup(missing))
+    return False
+
+
 def lang_picker() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     for code, name in LANG_NAMES.items():
@@ -98,7 +116,17 @@ def results_markup(sid: str, page: int) -> InlineKeyboardMarkup:
 
 
 @router.message(CommandStart())
-async def start(m: Message):
+async def start(m: Message, bot: Bot):
+    await asyncio.to_thread(db.ensure_user, m.from_user.id)
+    if not admin_panel.is_admin(m.from_user.id):
+        missing = await admin_panel.missing_channels(bot, m.from_user.id)
+        if missing:
+            lang = await lang_of(m.from_user)
+            if await asyncio.to_thread(db.get_lang, m.from_user.id) is None:
+                await m.answer("🌐 Choose your language / Tilni tanlang / Выберите язык:",
+                               reply_markup=lang_picker())
+            return await m.answer(TEXTS[lang]["sub_required"],
+                                   reply_markup=admin_panel.join_markup(missing))
     if await asyncio.to_thread(db.get_lang, m.from_user.id) is None:
         return await m.answer("🌐 Choose your language / Tilni tanlang / Выберите язык:",
                               reply_markup=lang_picker())
@@ -106,12 +134,15 @@ async def start(m: Message):
 
 
 @router.message(Command("help"))
-async def help_cmd(m: Message):
+async def help_cmd(m: Message, bot: Bot):
+    if not await check_sub(m, bot):
+        return
     await m.answer(TEXTS[await lang_of(m.from_user)]["start"])
 
 
 @router.message(Command("lang"))
-async def lang_cmd(m: Message):
+async def lang_cmd(m: Message, bot: Bot):
+    await asyncio.to_thread(db.ensure_user, m.from_user.id)
     t = TEXTS[await lang_of(m.from_user)]
     await m.answer(t["choose_lang"], reply_markup=lang_picker())
 
@@ -128,13 +159,21 @@ async def on_lang(cb: CallbackQuery):
 
 
 @router.message(F.text.regexp(IG_RE))
-async def on_instagram(m: Message, bot: Bot):
+async def on_instagram(m: Message, bot: Bot, state: FSMContext):
+    if await admin_busy(m, state):
+        return
+    if not await check_sub(m, bot):
+        return
     url = IG_RE.search(m.text).group(0)
     await send_video(m, url, TEXTS[await lang_of(m.from_user)], bot)
 
 
 @router.message(F.text.regexp(YT_RE))
-async def on_youtube(m: Message, bot: Bot):
+async def on_youtube(m: Message, bot: Bot, state: FSMContext):
+    if await admin_busy(m, state):
+        return
+    if not await check_sub(m, bot):
+        return
     url = YT_RE.search(m.text).group(0)
     await send_video(m, url, TEXTS[await lang_of(m.from_user)], bot)
 
@@ -155,17 +194,51 @@ async def send_video(msg: Message, url: str, T: dict, bot: Bot):
                                reply_markup=markup, supports_streaming=True)
     except dl.TooBig:
         await msg.answer(T["too_big"])
-    except Exception:
+    except Exception as e:
         logging.exception("video download failed")
-        await msg.answer(T["failed"])
+        err = str(e).lower()
+        if "sign in to confirm" in err or "not a bot" in err:
+            await msg.answer(T.get("bot_check", T["failed"]))
+        else:
+            await msg.answer(T["failed"])
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
         await status.delete()
 
 
+async def check_sub_cb(cb: CallbackQuery, bot: Bot) -> bool:
+    """Force-sub check for callback queries. Alerts + blocks if not joined."""
+    if admin_panel.is_admin(cb.from_user.id):
+        return True
+    missing = await admin_panel.missing_channels(bot, cb.from_user.id)
+    if not missing:
+        return True
+    lang = await lang_of(cb.from_user)
+    await cb.answer(TEXTS[lang]["sub_required"], show_alert=True)
+    try:
+        await cb.message.answer(TEXTS[lang]["sub_required"],
+                                reply_markup=admin_panel.join_markup(missing))
+    except Exception:
+        pass
+    return False
+
+
+async def admin_busy(m: Message, state: FSMContext) -> bool:
+    """True if an admin is in the middle of a broadcast/add-channel flow.
+
+    Prevents the normal search/download handlers from also firing on
+    the admin's control messages.
+    """
+    if not admin_panel.is_admin(m.from_user.id):
+        return False
+    return await state.get_state() is not None
+
+
 @router.callback_query(F.data.startswith("a:"))
-async def on_audio(cb: CallbackQuery):
+async def on_audio(cb: CallbackQuery, bot: Bot):
+    if not await check_sub_cb(cb, bot):
+        return
     T = TEXTS[await lang_of(cb.from_user)]
     url = link_cache.get(cb.data[2:])
     if not url:
@@ -175,7 +248,11 @@ async def on_audio(cb: CallbackQuery):
 
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def on_search(m: Message):
+async def on_search(m: Message, bot: Bot, state: FSMContext):
+    if await admin_busy(m, state):
+        return
+    if not await check_sub(m, bot):
+        return
     T = TEXTS[await lang_of(m.from_user)]
     query = m.text.strip()[:100]
     status = await m.answer(T["searching"])
@@ -192,7 +269,9 @@ async def on_search(m: Message):
 
 
 @router.callback_query(F.data.startswith("p:"))
-async def on_page(cb: CallbackQuery):
+async def on_page(cb: CallbackQuery, bot: Bot):
+    if not await check_sub_cb(cb, bot):
+        return
     _, sid, page = cb.data.split(":")
     if sid not in search_cache:
         T = TEXTS[await lang_of(cb.from_user)]
@@ -202,7 +281,9 @@ async def on_page(cb: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("m:"))
-async def on_music(cb: CallbackQuery):
+async def on_music(cb: CallbackQuery, bot: Bot):
+    if not await check_sub_cb(cb, bot):
+        return
     T = TEXTS[await lang_of(cb.from_user)]
     await cb.answer(T["working"])
     await send_audio(cb.message, f"https://www.youtube.com/watch?v={cb.data[2:]}", T)
@@ -210,6 +291,8 @@ async def on_music(cb: CallbackQuery):
 
 @router.callback_query(F.data.startswith("v:"))
 async def on_music_video(cb: CallbackQuery, bot: Bot):
+    if not await check_sub_cb(cb, bot):
+        return
     T = TEXTS[await lang_of(cb.from_user)]
     await cb.answer(T["working"])
     await send_video(cb.message, f"https://www.youtube.com/watch?v={cb.data[2:]}", T, bot)
@@ -229,9 +312,13 @@ async def send_audio(msg: Message, url: str, T: dict):
         )
     except dl.TooBig:
         await msg.answer(T["too_big"])
-    except Exception:
+    except Exception as e:
         logging.exception("audio download failed")
-        await msg.answer(T["failed"])
+        err = str(e).lower()
+        if "sign in to confirm" in err or "not a bot" in err:
+            await msg.answer(T.get("bot_check", T["failed"]))
+        else:
+            await msg.answer(T["failed"])
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
@@ -255,7 +342,9 @@ async def make_round(src: str, dst: str) -> bool:
 
 
 @router.message(Command("round"))
-async def round_cmd(m: Message):
+async def round_cmd(m: Message, bot: Bot):
+    if not await check_sub(m, bot):
+        return
     T = TEXTS[await lang_of(m.from_user)]
     waiting_round.put(m.from_user.id, True)
     await m.answer(T["round_prompt"])
@@ -270,6 +359,8 @@ async def cancel_cmd(m: Message):
 
 @router.message(F.video | F.animation | F.document.mime_type.startswith("video/"))
 async def on_round_video(m: Message, bot: Bot):
+    if not await check_sub(m, bot):
+        return
     T = TEXTS[await lang_of(m.from_user)]
     if m.from_user.id not in waiting_round:
         return await m.answer(T["round_hint"])
@@ -304,8 +395,12 @@ async def main():
     if not diag.get("cookies_file"):
         logging.warning("No cookies found (COOKIES_FILE/COOKIES_B64/cookies.txt) — "
                         "YouTube downloads will hit 'Sign in to confirm you're not a bot'")
-    bot = Bot(os.environ["BOT_TOKEN"])
-    dp = Dispatcher()
+    if not admin_panel._parse_admin_ids():
+        logging.warning("ADMIN_IDS is empty — /admin will be inaccessible. Set ADMIN_IDS in .env")
+    bot = Bot(os.environ["BOT_TOKEN"],
+              default=DefaultBotProperties(parse_mode="HTML"))
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(admin_panel.router)
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Start"),

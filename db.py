@@ -10,6 +10,41 @@ _conn = sqlite3.connect(DATA_DIR / "bot.db", check_same_thread=False)
 _conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, lang TEXT NOT NULL)")
 _conn.commit()
 
+# --- Migrations: allow NULL lang (track users before they pick a language),
+# --- add joined_at + required_channels table.
+def _migrate() -> None:
+    with _lock:
+        cols = {r[1]: r for r in _conn.execute("PRAGMA table_info(users)").fetchall()}
+        if cols and cols.get("lang", (None, None, None, 1))[3] == 1:
+            # lang is NOT NULL -> rebuild table as nullable with joined_at
+            _conn.execute(
+                "CREATE TABLE IF NOT EXISTS users_new "
+                "(id INTEGER PRIMARY KEY, lang TEXT, "
+                "joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            _conn.execute(
+                "INSERT OR IGNORE INTO users_new (id, lang) SELECT id, lang FROM users"
+            )
+            _conn.execute("DROP TABLE users")
+            _conn.execute("ALTER TABLE users_new RENAME TO users")
+            _conn.commit()
+        # add joined_at column if missing (fresh nullable table may lack it)
+        cols = {r[1]: r for r in _conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "joined_at" not in cols:
+            _conn.execute("ALTER TABLE users ADD COLUMN joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            _conn.commit()
+        _conn.execute(
+            "CREATE TABLE IF NOT EXISTS required_channels ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "chat_id INTEGER UNIQUE NOT NULL, "
+            "title TEXT NOT NULL DEFAULT '', "
+            "invite_link TEXT NOT NULL DEFAULT '')"
+        )
+        _conn.commit()
+
+
+_migrate()
+
 
 def get_lang(user_id: int) -> str | None:
     with _lock:
@@ -24,4 +59,55 @@ def set_lang(user_id: int, lang: str) -> None:
             "ON CONFLICT(id) DO UPDATE SET lang=excluded.lang",
             (user_id, lang),
         )
+        _conn.commit()
+
+
+def ensure_user(user_id: int) -> None:
+    """Track a user even before they pick a language (lang stays NULL)."""
+    with _lock:
+        _conn.execute("INSERT OR IGNORE INTO users (id) VALUES (?)", (user_id,))
+        _conn.commit()
+
+
+def count_users() -> int:
+    with _lock:
+        row = _conn.execute("SELECT COUNT(*) FROM users").fetchone()
+    return row[0] if row else 0
+
+
+def count_users_with_lang() -> int:
+    with _lock:
+        row = _conn.execute("SELECT COUNT(*) FROM users WHERE lang IS NOT NULL").fetchone()
+    return row[0] if row else 0
+
+
+def get_all_user_ids() -> list[int]:
+    with _lock:
+        rows = _conn.execute("SELECT id FROM users").fetchall()
+    return [r[0] for r in rows]
+
+
+# ---------- required (force-sub) channels ----------
+
+def get_channels() -> list[dict]:
+    with _lock:
+        rows = _conn.execute(
+            "SELECT id, chat_id, title, invite_link FROM required_channels ORDER BY id"
+        ).fetchall()
+    return [{"id": r[0], "chat_id": r[1], "title": r[2], "invite_link": r[3]} for r in rows]
+
+
+def add_channel(chat_id: int, title: str, invite_link: str) -> None:
+    with _lock:
+        _conn.execute(
+            "INSERT INTO required_channels (chat_id, title, invite_link) VALUES (?, ?, ?) "
+            "ON CONFLICT(chat_id) DO UPDATE SET title=excluded.title, invite_link=excluded.invite_link",
+            (chat_id, title, invite_link),
+        )
+        _conn.commit()
+
+
+def remove_channel(row_id: int) -> None:
+    with _lock:
+        _conn.execute("DELETE FROM required_channels WHERE id=?", (row_id,))
         _conn.commit()

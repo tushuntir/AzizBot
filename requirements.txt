@@ -1,6 +1,6 @@
 aiogram>=3.13,<4
 yt-dlp>=2026.7.28
 python-dotenv
-# Optional but recommended on servers/VPS to get PO tokens for web clients:
-# bgutil-ytdlp-pot-provider
-# Requires nodejs in the image (see Dockerfile comment).
+# PO tokens for YouTube web clients (mitigates "Sign in to confirm you're not a bot").
+# Needs nodejs in the image (Dockerfile already installs it).
+bgutil-ytdlp-pot-provider
