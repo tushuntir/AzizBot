@@ -8,12 +8,15 @@ RUN apt-get update \
 
 # Node.js >=22 for yt-dlp JS runtime and the bgutil POT provider.
 COPY --from=node:22-bookworm-slim /usr/local /usr/local
+# Deno: yt-dlp's default JS runtime (must be on PATH).
+COPY --from=denoland/deno:latest /usr/bin/deno /usr/local/bin/deno
 # Prebuilt bgutil server (build + node_modules) from the official image.
 COPY --from=brainicism/bgutil-ytdlp-pot-provider:latest /app /opt/bgutil
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir -U yt-dlp
 
 COPY . .
 

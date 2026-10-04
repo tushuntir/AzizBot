@@ -8,6 +8,12 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 _lock = threading.Lock()
 _conn = sqlite3.connect(DATA_DIR / "bot.db", check_same_thread=False)
 _conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, lang TEXT NOT NULL)")
+_conn.execute(
+    "CREATE TABLE IF NOT EXISTS media_cache ("
+    "url TEXT NOT NULL, kind TEXT NOT NULL, file_id TEXT NOT NULL, "
+    "title TEXT, performer TEXT, duration INTEGER DEFAULT 0, "
+    "PRIMARY KEY (url, kind))"
+)
 _conn.commit()
 
 # --- Migrations: allow NULL lang (track users before they pick a language),
@@ -85,6 +91,30 @@ def get_all_user_ids() -> list[int]:
     with _lock:
         rows = _conn.execute("SELECT id FROM users").fetchall()
     return [r[0] for r in rows]
+
+
+def get_media(url: str, kind: str) -> dict | None:
+    with _lock:
+        row = _conn.execute(
+            "SELECT file_id, title, performer, duration FROM media_cache WHERE url=? AND kind=?",
+            (url, kind),
+        ).fetchone()
+    if not row:
+        return None
+    return {"file_id": row[0], "title": row[1], "performer": row[2], "duration": row[3] or 0}
+
+
+def put_media(url: str, kind: str, file_id: str, title: str | None = None,
+              performer: str | None = None, duration: int = 0) -> None:
+    with _lock:
+        _conn.execute(
+            "INSERT INTO media_cache (url, kind, file_id, title, performer, duration) "
+            "VALUES (?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(url, kind) DO UPDATE SET file_id=excluded.file_id, "
+            "title=excluded.title, performer=excluded.performer, duration=excluded.duration",
+            (url, kind, file_id, title, performer, duration),
+        )
+        _conn.commit()
 
 
 # ---------- required (force-sub) channels ----------

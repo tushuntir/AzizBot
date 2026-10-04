@@ -27,8 +27,9 @@ from strings import LANG_NAMES, TEXTS  # noqa: E402
 DEFAULT_LANG = os.getenv("DEFAULT_LANG", "en")
 if DEFAULT_LANG not in TEXTS:
     DEFAULT_LANG = "en"
-PAGE_SIZE = 5
+PAGE_SIZE = 10
 jobs = asyncio.Semaphore(int(os.getenv("MAX_JOBS", "3")))
+CACHE_CHANNEL = os.getenv("CACHE_CHANNEL", "").strip() or None  # private channel for cached media
 
 IG_RE = re.compile(r"https?://(?:www\.)?instagram\.com/(?:reels?|p|tv)/[\w\-]+[^\s]*", re.I)
 YT_RE = re.compile(
@@ -95,23 +96,33 @@ def fmt_dur(sec: int) -> str:
     return f"{sec // 60}:{sec % 60:02d}" if sec else ""
 
 
+def results_text(query: str, results: list, page: int) -> str:
+    chunk = results[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
+    lines = [f"🔍 {query}\n"]
+    for i, r in enumerate(chunk):
+        lines.append(f"{page * PAGE_SIZE + i + 1}. {r['title']} {fmt_dur(r['duration'])}".rstrip())
+    return "\n".join(lines)
+
+
 def results_markup(sid: str, page: int) -> InlineKeyboardMarkup:
     query, results = search_cache[sid]
-    kb = InlineKeyboardBuilder()
     chunk = results[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]
-    for r in chunk:
-        label = f"{r['title'][:45]} · {fmt_dur(r['duration'])}".strip(" ·")
-        kb.row(
-            InlineKeyboardButton(text=f"🎵 {label}"[:64], callback_data=f"m:{r['id']}"),
-            InlineKeyboardButton(text="🎬", callback_data=f"v:{r['id']}"),
-        )
+    kb = InlineKeyboardBuilder()
+    row = []
+    for i in range(len(chunk)):
+        row.append(InlineKeyboardButton(text=str(i + 1), callback_data=f"n:{sid}:{page * PAGE_SIZE + i}"))
+        if len(row) == 5:
+            kb.row(*row)
+            row = []
+    if row:
+        kb.row(*row)
     nav = []
     if page > 0:
         nav.append(InlineKeyboardButton(text="⬅️", callback_data=f"p:{sid}:{page - 1}"))
+    nav.append(InlineKeyboardButton(text="❌", callback_data="x"))
     if (page + 1) * PAGE_SIZE < len(results):
         nav.append(InlineKeyboardButton(text="➡️", callback_data=f"p:{sid}:{page + 1}"))
-    if nav:
-        kb.row(*nav)
+    kb.row(*nav)
     return kb.as_markup()
 
 
@@ -182,16 +193,29 @@ async def send_video(msg: Message, url: str, T: dict, bot: Bot):
     status = await msg.answer(T["working"])
     tmp = None
     try:
-        async with jobs:
-            tmp, path, info = await asyncio.to_thread(dl.download_video, url)
-        lid = short_id(url)
-        link_cache.put(lid, url)
         me = await bot.get_me()
         markup = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(text=T["audio_btn"], callback_data=f"a:{lid}")
+            InlineKeyboardButton(text=T["audio_btn"], callback_data=f"a:{short_id(url)}")
         ]])
-        await msg.answer_video(FSInputFile(path), caption=T["caption"].format(bot=me.username),
-                               reply_markup=markup, supports_streaming=True)
+        lid = short_id(url)
+        link_cache.put(lid, url)
+        cached = await asyncio.to_thread(db.get_media, url, "video")
+        if cached:
+            await msg.answer_video(cached["file_id"],
+                                   caption=T["caption"].format(bot=me.username),
+                                   reply_markup=markup, supports_streaming=True)
+            return
+        async with jobs:
+            tmp, path, info = await asyncio.to_thread(dl.download_video, url)
+        if CACHE_CHANNEL:
+            sent = await bot.send_video(CACHE_CHANNEL, FSInputFile(path), supports_streaming=True)
+            await asyncio.to_thread(db.put_media, url, "video", sent.video.file_id)
+            await msg.answer_video(sent.video.file_id,
+                                   caption=T["caption"].format(bot=me.username),
+                                   reply_markup=markup, supports_streaming=True)
+        else:
+            await msg.answer_video(FSInputFile(path), caption=T["caption"].format(bot=me.username),
+                                   reply_markup=markup, supports_streaming=True)
     except dl.TooBig:
         await msg.answer(T["too_big"])
     except Exception as e:
@@ -265,7 +289,7 @@ async def on_search(m: Message, bot: Bot, state: FSMContext):
         return await status.edit_text(T["no_results"])
     sid = short_id(query)
     search_cache.put(sid, (query, results))
-    await status.edit_text(T["results"].format(q=query), reply_markup=results_markup(sid, 0))
+    await status.edit_text(results_text(query, results, 0), reply_markup=results_markup(sid, 0))
 
 
 @router.callback_query(F.data.startswith("p:"))
@@ -276,8 +300,35 @@ async def on_page(cb: CallbackQuery, bot: Bot):
     if sid not in search_cache:
         T = TEXTS[await lang_of(cb.from_user)]
         return await cb.answer(T["expired"], show_alert=True)
-    await cb.message.edit_reply_markup(reply_markup=results_markup(sid, int(page)))
+    query, results = search_cache[sid]
+    await cb.message.edit_text(results_text(query, results, int(page)),
+                               reply_markup=results_markup(sid, int(page)))
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("n:"))
+async def on_num(cb: CallbackQuery, bot: Bot):
+    if not await check_sub_cb(cb, bot):
+        return
+    T = TEXTS[await lang_of(cb.from_user)]
+    _, sid, idx = cb.data.split(":")
+    if sid not in search_cache:
+        return await cb.answer(T["expired"], show_alert=True)
+    _, results = search_cache[sid]
+    idx = int(idx)
+    if idx >= len(results):
+        return await cb.answer(T["expired"], show_alert=True)
+    await cb.answer(T["working"])
+    await send_audio(cb.message, f"https://www.youtube.com/watch?v={results[idx]['id']}", T)
+
+
+@router.callback_query(F.data == "x")
+async def on_cancel(cb: CallbackQuery):
+    await cb.answer()
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
 
 
 @router.callback_query(F.data.startswith("m:"))
@@ -302,14 +353,30 @@ async def send_audio(msg: Message, url: str, T: dict):
     status = await msg.answer(T["working"])
     tmp = None
     try:
+        cached = await asyncio.to_thread(db.get_media, url, "audio")
+        if cached:
+            await msg.answer_audio(
+                cached["file_id"],
+                title=(cached["title"] or "")[:64],
+                performer=(cached["performer"] or "")[:64],
+                duration=int(cached["duration"] or 0),
+            )
+            return
         async with jobs:
             tmp, path, info = await asyncio.to_thread(dl.download_audio, url)
-        await msg.answer_audio(
-            FSInputFile(path),
-            title=(info.get("track") or info.get("title") or "")[:64],
-            performer=(info.get("artist") or info.get("uploader") or "")[:64],
-            duration=int(info.get("duration") or 0),
-        )
+        title = (info.get("track") or info.get("title") or "")[:64]
+        performer = (info.get("artist") or info.get("uploader") or "")[:64]
+        duration = int(info.get("duration") or 0)
+        if CACHE_CHANNEL:
+            sent = await bot.send_audio(CACHE_CHANNEL, FSInputFile(path),
+                                        title=title, performer=performer, duration=duration)
+            await asyncio.to_thread(db.put_media, url, "audio", sent.audio.file_id,
+                                    title, performer, duration)
+            await msg.answer_audio(sent.audio.file_id, title=title,
+                                   performer=performer, duration=duration)
+        else:
+            await msg.answer_audio(FSInputFile(path), title=title,
+                                   performer=performer, duration=duration)
     except dl.TooBig:
         await msg.answer(T["too_big"])
     except Exception as e:
@@ -367,6 +434,11 @@ async def on_round_video(m: Message, bot: Bot):
     media = m.video or m.animation or m.document
     if (media.file_size or 0) > ROUND_DL_LIMIT:
         return await m.answer(T["round_too_big"])
+    cached = await asyncio.to_thread(db.get_media, media.file_unique_id, "video_note")
+    if cached:
+        waiting_round.pop(m.from_user.id, None)
+        await m.answer_video_note(cached["file_id"], length=640)
+        return
     waiting_round.pop(m.from_user.id, None)
     status = await m.answer(T["working"])
     tmp = tempfile.mkdtemp(prefix="round_")
@@ -379,7 +451,13 @@ async def on_round_video(m: Message, bot: Bot):
             raise RuntimeError("ffmpeg failed")
         if (getattr(media, "duration", 0) or 0) > 60:
             await m.answer(T["round_trimmed"])
-        await m.answer_video_note(FSInputFile(dst), length=640)
+        if CACHE_CHANNEL:
+            sent = await bot.send_video_note(CACHE_CHANNEL, FSInputFile(dst), length=640)
+            await asyncio.to_thread(db.put_media, media.file_unique_id, "video_note",
+                                    sent.video_note.file_id)
+            await m.answer_video_note(sent.video_note.file_id, length=640)
+        else:
+            await m.answer_video_note(FSInputFile(dst), length=640)
     except Exception:
         logging.exception("round conversion failed")
         await m.answer(T["round_failed"])

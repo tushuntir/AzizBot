@@ -57,14 +57,20 @@ def _cookies_path() -> Path | None:
 def _player_clients() -> list[str]:
     env = os.getenv("YT_PLAYER_CLIENT")
     if env:
-        clients = [c.strip() for c in env.split(",") if c.strip()]
-        if clients:
-            return clients
-    # Don't pair cookies with tv: it authenticates differently and tends
-    # to invalidate the session. No cookies: tv first (least scrutinised).
-    if _cookies_path() is not None:
-        return ["web_safari", "web_embedded", "mweb"]
-    return ["tv", "web_safari"]
+        return [c.strip() for c in env.split(",") if c.strip()]
+    return []
+
+
+def _yt_args() -> dict:
+    args = {
+        "youtubepot-bgutilhttp": {
+            "base_url": os.getenv("POT_BASE_URL", "http://127.0.0.1:4416").rstrip("/")
+        },
+    }
+    clients = _player_clients()
+    if clients:
+        args["youtube"] = {"player_client": clients}
+    return args
 MAX_BYTES = 50 * 1024 * 1024  # Telegram cloud Bot API upload limit
 
 
@@ -83,10 +89,7 @@ def _base_opts(outdir: str) -> dict:
         # ---- YouTube "Sign in to confirm you're not a bot" mitigations ----
         # Try alternative player clients in order; web client without PO token
         # is what triggers the challenge most often on datacenter IPs.
-        "extractor_args": {
-            "youtube": {"player_client": _player_clients()},
-            "youtubepot-bgutilhttp": {"base_url": os.getenv("POT_BASE_URL", "http://127.0.0.1:4416").rstrip("/")},
-        },
+        "extractor_args": _yt_args(),
         # Force IPv4: datacenter IPv6 ranges are blocked hardest by YouTube.
         "source_address": "0.0.0.0",
         # Be less bot-like: small sleeps between requests.
@@ -154,10 +157,7 @@ def search_music(query: str, limit: int = 10) -> list[dict]:
         "extract_flat": True,
         "skip_download": True,
         "socket_timeout": 20,
-        "extractor_args": {
-            "youtube": {"player_client": _player_clients()},
-            "youtubepot-bgutilhttp": {"base_url": os.getenv("POT_BASE_URL", "http://127.0.0.1:4416").rstrip("/")},
-        },
+        "extractor_args": _yt_args(),
         "source_address": "0.0.0.0",
     }
     cp = _cookies_path()

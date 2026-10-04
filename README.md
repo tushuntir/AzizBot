@@ -24,6 +24,8 @@ cp .env.example .env   # set BOT_TOKEN
 python bot.py
 ```
 
+YouTube downloads also need a JavaScript runtime. On Windows: `winget install DenoLand.Deno`.
+
 ## Notes
 - Telegram's cloud Bot API caps uploads at 50 MB.
 - If Instagram blocks downloads, export cookies (Netscape format) from a throwaway account,

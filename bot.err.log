@@ -1,0 +1,50 @@
+INFO:root:downloader diagnostics: {'yt_dlp': '2026.08.19', 'cookies_file': None, 'player_clients': ['tv', 'web_safari']}
+WARNING:root:No cookies found (COOKIES_FILE/COOKIES_B64/cookies.txt) — YouTube downloads will hit 'Sign in to confirm you're not a bot'
+WARNING:root:ADMIN_IDS is empty — /admin will be inaccessible. Set ADMIN_IDS in .env
+INFO:aiogram.dispatcher:Start polling
+INFO:aiogram.dispatcher:Run polling for bot @MusicistonBot id=8768735524 - 'Musiciston \U0001f602\U0001f602\U0001f602'
+INFO:aiogram.event:Update id=105247807 is handled. Duration 519 ms by bot id=8768735524
+INFO:aiogram.event:Update id=105247808 is handled. Duration 582 ms by bot id=8768735524
+INFO:aiogram.event:Update id=105247809 is handled. Duration 3288 ms by bot id=8768735524
+ERROR: [youtube] TdrL3QxjyVw: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+ERROR:root:audio download failed
+Traceback (most recent call last):
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1731, in wrapper
+    return func(self, *args, **kwargs)
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1866, in __extract_info
+    ie_result = ie.extract(url)
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\extractor\common.py", line 765, in extract
+    ie_result = self._real_extract(url)
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\extractor\youtube\_video.py", line 4076, in _real_extract
+    self.raise_no_formats(reason, expected=True)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\extractor\common.py", line 1272, in raise_no_formats
+    raise ExtractorError(msg, expected=expected, video_id=video_id)
+yt_dlp.utils.ExtractorError: [youtube] TdrL3QxjyVw: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\GitHub\Music Bot\bot.py", line 306, in send_audio
+    tmp, path, info = await asyncio.to_thread(dl.download_audio, url)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\asyncio\threads.py", line 26, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "D:\GitHub\Music Bot\downloader.py", line 143, in download_audio
+    info = ydl.extract_info(url, download=True)
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1720, in extract_info
+    return self.__extract_info(url, self.get_info_extractor(key), download, extra_info, process)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1749, in wrapper
+    self.report_error(str(e), e.format_traceback())
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1165, in report_error
+    self.trouble(f'{self._format_err("ERROR:", self.Styles.ERROR)} {message}', *args, **kwargs)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Farkhad\AppData\Local\Programs\Python\Python313\Lib\site-packages\yt_dlp\YoutubeDL.py", line 1103, in trouble
+    raise DownloadError(message, exc_info)
+yt_dlp.utils.DownloadError: ERROR: [youtube] TdrL3QxjyVw: Sign in to confirm you’re not a bot. Use --cookies-from-browser or --cookies for the authentication. See  https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies  for tips on effectively exporting YouTube cookies
+INFO:aiogram.event:Update id=105247810 is handled. Duration 12412 ms by bot id=8768735524
