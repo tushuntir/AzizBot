@@ -29,7 +29,6 @@ if DEFAULT_LANG not in TEXTS:
     DEFAULT_LANG = "en"
 PAGE_SIZE = 10
 jobs = asyncio.Semaphore(int(os.getenv("MAX_JOBS", "3")))
-CACHE_CHANNEL = os.getenv("CACHE_CHANNEL", "").strip() or None  # private channel for cached media
 
 IG_RE = re.compile(r"https?://(?:www\.)?instagram\.com/(?:reels?|p|tv)/[\w\-]+[^\s]*", re.I)
 YT_RE = re.compile(
@@ -207,8 +206,9 @@ async def send_video(msg: Message, url: str, T: dict, bot: Bot):
             return
         async with jobs:
             tmp, path, info = await asyncio.to_thread(dl.download_video, url)
-        if CACHE_CHANNEL:
-            sent = await bot.send_video(CACHE_CHANNEL, FSInputFile(path), supports_streaming=True)
+        _cc = db.get_cache_channel()
+        if _cc:
+            sent = await bot.send_video(_cc, FSInputFile(path), supports_streaming=True)
             await asyncio.to_thread(db.put_media, url, "video", sent.video.file_id)
             await msg.answer_video(sent.video.file_id,
                                    caption=T["caption"].format(bot=me.username),
@@ -367,8 +367,9 @@ async def send_audio(msg: Message, url: str, T: dict):
         title = (info.get("track") or info.get("title") or "")[:64]
         performer = (info.get("artist") or info.get("uploader") or "")[:64]
         duration = int(info.get("duration") or 0)
-        if CACHE_CHANNEL:
-            sent = await bot.send_audio(CACHE_CHANNEL, FSInputFile(path),
+        _cc = db.get_cache_channel()
+        if _cc:
+            sent = await bot.send_audio(_cc, FSInputFile(path),
                                         title=title, performer=performer, duration=duration)
             await asyncio.to_thread(db.put_media, url, "audio", sent.audio.file_id,
                                     title, performer, duration)
@@ -451,8 +452,9 @@ async def on_round_video(m: Message, bot: Bot):
             raise RuntimeError("ffmpeg failed")
         if (getattr(media, "duration", 0) or 0) > 60:
             await m.answer(T["round_trimmed"])
-        if CACHE_CHANNEL:
-            sent = await bot.send_video_note(CACHE_CHANNEL, FSInputFile(dst), length=640)
+        _cc = db.get_cache_channel()
+        if _cc:
+            sent = await bot.send_video_note(_cc, FSInputFile(dst), length=640)
             await asyncio.to_thread(db.put_media, media.file_unique_id, "video_note",
                                     sent.video_note.file_id)
             await m.answer_video_note(sent.video_note.file_id, length=640)

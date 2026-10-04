@@ -49,6 +49,10 @@ class AddChannel(StatesGroup):
     waiting_input = State()
 
 
+class SetCacheChannel(StatesGroup):
+    waiting_input = State()
+
+
 # ---------- /admin panel ----------
 
 def panel_markup() -> object:
@@ -56,6 +60,7 @@ def panel_markup() -> object:
     kb.button(text="📊 Users", callback_data="adm:stats")
     kb.button(text="📢 Broadcast", callback_data="adm:bcast")
     kb.button(text="📣 Channels", callback_data="adm:channels")
+    kb.button(text="🗃 Cache", callback_data="adm:cache")
     kb.adjust(2)
     return kb.as_markup()
 
@@ -70,7 +75,8 @@ PANEL_TEXT = (
     "🛠 <b>Admin panel</b>\n\n"
     "📊 <b>Users</b> — total user count\n"
     "📢 <b>Broadcast</b> — send a message (ad) to everyone\n"
-    "📣 <b>Channels</b> — required channels users must join"
+    "📣 <b>Channels</b> — required channels users must join\n"
+    "🗃 <b>Cache</b> — private channel where cached media is stored"
 )
 
 
@@ -269,6 +275,89 @@ async def ch_delete(cb: CallbackQuery):
     await asyncio.to_thread(db.remove_channel, row_id)
     await cb.answer("🗑 Removed")
     await show_channels(cb.message, edit=True)
+
+
+# ---------- cache channel ----------
+
+@router.callback_query(F.data == "adm:cache")
+async def adm_cache(cb: CallbackQuery, state: FSMContext):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer("⛔", show_alert=True)
+    await state.clear()
+    await show_cache(cb.message, edit=True)
+    await cb.answer()
+
+
+async def show_cache(msg: Message, edit: bool = False):
+    current = db.get_cache_channel()
+    kb = InlineKeyboardBuilder()
+    lines = ["🗃 <b>Cache channel</b>\n"]
+    if current:
+        lines.append(f"Current: <code>{current}</code>")
+        kb.row(InlineKeyboardButton(text="🗑 Remove", callback_data="adm:cache_del"))
+    else:
+        lines.append("Not set. Cached media will not be stored in a channel.")
+    kb.row(InlineKeyboardButton(text="➕ Set channel", callback_data="adm:cache_set"))
+    kb.row(InlineKeyboardButton(text="⬅️ Back", callback_data="adm:home"))
+    text = "\n".join(lines)
+    if edit:
+        await msg.edit_text(text, reply_markup=kb.as_markup())
+    else:
+        await msg.answer(text, reply_markup=kb.as_markup())
+
+
+@router.callback_query(F.data == "adm:cache_set")
+async def cache_set_prompt(cb: CallbackQuery, state: FSMContext, bot: Bot):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer("⛔", show_alert=True)
+    await state.set_state(SetCacheChannel.waiting_input)
+    me = await bot.get_me()
+    kb = InlineKeyboardBuilder()
+    kb.button(text="❌ Cancel", callback_data="adm:cache")
+    await cb.message.edit_text(
+        "🗃 Send the cache channel:\n"
+        "• @username, or\n"
+        "• numeric ID (<code>-100…</code>)\n\n"
+        f"⚠️ Add @{me.username} as an <b>admin</b> in that channel first.",
+        reply_markup=kb.as_markup(),
+    )
+    await cb.answer()
+
+
+@router.message(SetCacheChannel.waiting_input)
+async def cache_set_received(m: Message, state: FSMContext, bot: Bot):
+    if not is_admin(m.from_user.id):
+        return
+    target = _normalize_channel_input(m.text or "")
+    if not target:
+        return await m.answer("⚠️ Send @username or channel ID. Or /admin to cancel.")
+    try:
+        chat = await bot.get_chat(target)
+    except Exception:
+        return await m.answer(f"⚠️ Can't find channel {target}. Check the username and try again.")
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(chat.id, me.id)
+        if member.status not in ("administrator", "creator"):
+            return await m.answer(
+                f"⚠️ I'm not an admin in <b>{chat.title}</b>. "
+                f"Add @{me.username} as admin there first, then send the channel again."
+            )
+    except Exception:
+        return await m.answer("⚠️ Can't check my rights in that channel. Make me admin first.")
+    await asyncio.to_thread(db.set_setting, "cache_channel", str(chat.id))
+    await state.clear()
+    await m.answer(f"✅ Cache channel set: <b>{chat.title}</b> (<code>{chat.id}</code>)")
+    await show_cache(m)
+
+
+@router.callback_query(F.data == "adm:cache_del")
+async def cache_del(cb: CallbackQuery):
+    if not is_admin(cb.from_user.id):
+        return await cb.answer("⛔", show_alert=True)
+    await asyncio.to_thread(db.set_setting, "cache_channel", None)
+    await cb.answer("🗑 Removed")
+    await show_cache(cb.message, edit=True)
 
 
 # ---------- force-sub check (used by bot.py) ----------

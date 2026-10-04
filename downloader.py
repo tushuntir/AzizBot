@@ -78,7 +78,7 @@ class TooBig(Exception):
     pass
 
 
-def _base_opts(outdir: str) -> dict:
+def _base_opts(outdir: str, proxy: str | None = None) -> dict:
     opts = {
         "outtmpl": f"{outdir}/%(id)s.%(ext)s",
         "quiet": True,
@@ -100,6 +100,8 @@ def _base_opts(outdir: str) -> dict:
     cp = _cookies_path()
     if cp is not None:
         opts["cookiefile"] = str(cp)
+    if proxy:
+        opts["proxy"] = proxy
     return opts
 
 
@@ -114,10 +116,10 @@ def _pick_file(outdir: str, suffix: str | None = None) -> Path:
     return max(files, key=lambda p: p.stat().st_size)
 
 
-def download_video(url: str):
+def download_video(url: str, proxy: str | None = None):
     """Returns (tmpdir, file_path, info). Caller must delete tmpdir."""
     tmp = tempfile.mkdtemp(prefix="reel_")
-    opts = _base_opts(tmp)
+    opts = _base_opts(tmp, proxy=proxy)
     opts["format"] = "best[ext=mp4][filesize<48M]/best[ext=mp4]/best"
     # YouTube serves separate video/audio streams; merge them into one mp4.
     # No-op for single-file sources like Instagram.
@@ -130,10 +132,10 @@ def download_video(url: str):
     return tmp, path, info
 
 
-def download_audio(url: str):
+def download_audio(url: str, proxy: str | None = None):
     """Extracts MP3. Returns (tmpdir, file_path, info)."""
     tmp = tempfile.mkdtemp(prefix="aud_")
-    opts = _base_opts(tmp)
+    opts = _base_opts(tmp, proxy=proxy)
     opts.update({
         "format": "bestaudio/best",
         "postprocessors": [{

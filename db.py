@@ -15,6 +15,8 @@ _conn.execute(
     "PRIMARY KEY (url, kind))"
 )
 _conn.commit()
+_conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+_conn.commit()
 
 # --- Migrations: allow NULL lang (track users before they pick a language),
 # --- add joined_at + required_channels table.
@@ -141,3 +143,28 @@ def remove_channel(row_id: int) -> None:
     with _lock:
         _conn.execute("DELETE FROM required_channels WHERE id=?", (row_id,))
         _conn.commit()
+
+
+# ---------- settings ----------
+
+def get_setting(key: str) -> str | None:
+    with _lock:
+        row = _conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def set_setting(key: str, value: str | None) -> None:
+    with _lock:
+        if value is None:
+            _conn.execute("DELETE FROM settings WHERE key=?", (key,))
+        else:
+            _conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (key, value),
+            )
+        _conn.commit()
+
+
+def get_cache_channel() -> str | None:
+    return get_setting("cache_channel") or (os.getenv("CACHE_CHANNEL", "").strip() or None)
